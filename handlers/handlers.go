@@ -15,9 +15,9 @@ import (
 // ItemStore defines the data operations the handler needs.
 type ItemStore interface {
 	GetItems(ctx context.Context) ([]*models.Item, error)
-	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
 	GetItem(ctx context.Context, id int) (*models.Item, error)
-	CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order
+	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
+	CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error)
 	CreateUserCart(cart *models.Cart)
 	GetUserCart(userID int) *models.Cart
 	DeleteUserCart(userID int)
@@ -303,7 +303,11 @@ func (h *Handler) CreateOrderFromCart(w http.ResponseWriter, r *http.Request) {
 		status = "failed"
 	}
 
-	order := h.store.CreateOrder(req.UserID, cart.Items, total, status)
+	order, err := h.store.CreateOrder(r.Context(), req.UserID, cart.Items, total, status)
+	if err != nil {
+		http.Error(w, "Error occured while CreateOrder", http.StatusBadRequest)
+		return
+	}
 
 	if paymentResult.Success {
 		h.store.DeleteUserCart(req.UserID)
@@ -412,7 +416,12 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		status = "failed"
 	}
 
-	order := h.store.CreateOrder(req.UserID, orderItems, total, status)
+	order, err := h.store.CreateOrder(r.Context(), req.UserID, orderItems, total, status)
+
+	if err != nil {
+		http.Error(w, "Error occured while CreateOrder", http.StatusBadRequest)
+		return
+	}
 
 	if paymentResult.Success {
 		writeJSON(w, http.StatusCreated, map[string]any{

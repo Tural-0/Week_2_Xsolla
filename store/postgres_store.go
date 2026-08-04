@@ -4,6 +4,7 @@ import (
 	"checkout-api/models"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -68,11 +69,35 @@ func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, erro
 	return &item, nil
 }
 
-func (s *PostgresStore) CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order {
+func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
 	// TODO: create an order in a transaction
 	// Use a context.Context passed as the first argument from your method
 	// Use transaction with conn.Begin(), conn.Exec()
-	return nil
+	trans, err := s.conn.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while BEGIN", err)
+	}
+
+	_, err = trans.Exec(ctx,
+		"INSERT INTO orders (user_id,total,status,created_at) VALUES ($1,$2,$3,$4)", userID, total, status, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while EXEC", err)
+	}
+
+	err = trans.Commit(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while COMMIT", err)
+	}
+
+	order := &models.Order{
+		ID:     0,
+		UserID: userID,
+		Items:  items,
+		Total:  total,
+		Status: status,
+	}
+
+	return order, nil
 }
 
 func (s *PostgresStore) CreateUserCart(cart *models.Cart) {
