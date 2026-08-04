@@ -168,26 +168,57 @@ func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Ca
 
 func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) error {
 	// TODO: implement
-	cartId := ""
-	err := s.conn.QueryRow(ctx,
-		"SELECT cart_id FROM carts WHERE user_id=$1", userID).Scan(cartId)
+	var cartID string
+
+	err := s.conn.QueryRow(
+		ctx,
+		"SELECT id FROM carts WHERE user_id=$1", userID,
+	).Scan(&cartID)
 	if err != nil {
-		return fmt.Errorf("%w: No rows were returned from query on DeleteUserCart", err)
+		return fmt.Errorf("failed to find cart: %w", err)
 	}
 
-	s.conn.Exec(ctx,
-		"DELETE FROM carts WHERE cart_id=$1", cartId)
+	_, err = s.conn.Exec(
+		ctx,
+		"DELETE FROM cart_items WHERE cart_id=$1",
+		cartID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete cart items: %w", err)
+	}
+
+	_, err = s.conn.Exec(
+		ctx,
+		"DELETE FROM carts WHERE id=$1",
+		cartID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete cart: %w", err)
+	}
 
 	return nil
 
 }
 
-func (s *PostgresStore) UpdateCartItem(userID int, itemID int, quantity int) bool {
+func (s *PostgresStore) UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) (bool, error) {
 	// TODO: implement
-	return false
+
+	_, err := s.conn.Exec(ctx,
+		"UPDATE cart_items SET quantity=$1 WHERE cart_id=(SELECT id FROM carts WHERE user_id=$2 LIMIT 1) AND item_id=$3", quantity, userID, itemID)
+
+	if err != nil {
+		return false, fmt.Errorf("%w: failed to run query on UpdateCartItem", err)
+	}
+
+	return true, nil
 }
 
-func (s *PostgresStore) RemoveCartItem(userID int, itemID int) bool {
+func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID int, itemID int) (bool, error) {
 	// TODO: implement
-	return false
+	_, err := s.conn.Exec(ctx,
+		"DELETE FROM cart_items WHERE cart_id=(SELECT id FROM carts WHERE user_id=$1 LIMIT 1) AND item_id=$2", userID, itemID)
+	if err != nil {
+		return false, fmt.Errorf("%w: failed to run query on RemoveCartItem", err)
+	}
+	return true, nil
 }

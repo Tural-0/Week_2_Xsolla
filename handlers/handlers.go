@@ -21,8 +21,8 @@ type ItemStore interface {
 	GetUserCart(ctx context.Context, userID int) (*models.Cart, error)
 	DeleteUserCart(ctx context.Context, userID int) error
 	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
-	UpdateCartItem(userID int, itemID int, quantity int) bool
-	RemoveCartItem(userID int, itemID int) bool
+	UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) (bool, error)
+	RemoveCartItem(ctx context.Context, userID int, itemID int) (bool, error)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -180,14 +180,19 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.store.UpdateCartItem(req.UserID, itemID, req.Quantity) {
+	isDone, err := h.store.UpdateCartItem(r.Context(), req.UserID, itemID, req.Quantity)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusBadRequest)
+		return
+	}
+	if !isDone {
 		writeJSON(w, http.StatusOK, map[string]string{"message": "item not found in cart or cart does not exist for this user"})
 		return
 	}
 
 	cart, err := h.store.GetUserCart(r.Context(), req.UserID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error: $1", err.Error()), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, cart)
@@ -212,20 +217,29 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.store.RemoveCartItem(req.UserID, itemID) {
+	isDone, err := h.store.RemoveCartItem(r.Context(), req.UserID, itemID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusBadRequest)
+		return
+	}
+	if !isDone {
 		writeJSON(w, http.StatusOK, map[string]string{"message": "item not found in cart or cart does not exist for this user"})
 		return
 	}
 
 	cart, err := h.store.GetUserCart(r.Context(), req.UserID)
+	if cart == nil {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "cart is now empty"})
+		return
+	}
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error: ", err.Error()), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusBadRequest)
 		return
 	}
 	if cart != nil && len(cart.Items) == 0 {
 		err = h.store.DeleteUserCart(r.Context(), req.UserID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error: ", err.Error()), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusBadRequest)
 		}
 	}
 
@@ -255,7 +269,7 @@ func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 	//	http.Error(w, err.Error(), http.StatusBadRequest)
 	//	return
 	//}
-	if cart == nil {
+	if cart == nil || len(cart.Items) == 0 {
 		emptyCart := &models.Cart{
 			ID:     "",
 			UserID: userID,
