@@ -78,8 +78,9 @@ func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []mod
 		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while BEGIN", err)
 	}
 
+	createdAt := time.Now()
 	_, err = trans.Exec(ctx,
-		"INSERT INTO orders (user_id,total,status,created_at) VALUES ($1,$2,$3,$4)", userID, total, status, time.Now())
+		"INSERT INTO orders (user_id,total,status,created_at) VALUES ($1,$2,$3,$4) RETURNING id", userID, total, status, createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while EXEC", err)
 	}
@@ -89,8 +90,11 @@ func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []mod
 		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while COMMIT", err)
 	}
 
+	var id int
+	s.conn.QueryRow(ctx, "SELECT id FROM orders WHERE created_at = $1", createdAt).Scan(id)
+
 	order := &models.Order{
-		ID:     0,
+		ID:     id,
 		UserID: userID,
 		Items:  items,
 		Total:  total,
@@ -100,13 +104,64 @@ func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []mod
 	return order, nil
 }
 
-func (s *PostgresStore) CreateUserCart(cart *models.Cart) {
+func (s *PostgresStore) CreateUserCart(ctx context.Context, cart *models.Cart) error {
 	// TODO: implement
+	_, err := s.conn.Exec(ctx,
+		"INSERT INTO carts (id, user_id) VALUES ($1, $2)", cart.ID, cart.UserID)
+	if err != nil {
+		return fmt.Errorf("%w: failed to run query on CreateUserCart while INSERT", err)
+	}
+
+	for _, item := range cart.Items {
+		_, err := s.conn.Exec(ctx,
+			"INSERT INTO cart_items (cart_id,item_id,price,quantity) VALUES ($1, $2, $3, $4)", cart.ID, item.ItemID, item.Price, item.Quantity)
+		if err != nil {
+			return fmt.Errorf("%w: failed to run query on CreateUserCart while INSERT of item", err)
+		}
+	}
+
+	return nil
 }
 
-func (s *PostgresStore) GetUserCart(userID int) *models.Cart {
+func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Cart, error) {
 	// TODO: implement
-	return nil
+	row := s.conn.QueryRow(ctx,
+		"SELECT * FROM carts WHERE user_id=$1", userID)
+
+	var cart models.Cart
+	err := row.Scan(&cart.ID, &cart.UserID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("%w: No rows were returned from query on GetUserCart", err)
+		}
+		fmt.Printf("unable to scan row: ")
+		fmt.Print(err)
+		return nil, fmt.Errorf("%w: failed to run query on GetUserCart", err)
+	}
+
+	// getting items
+	rows, err := s.conn.Query(ctx, "SELECT item_id, price, quantity FROM cart_items WHERE cart_id = $1", cart.ID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to run query on GetUserCart while getting cart_items", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var lItem models.LineItem
+		err := rows.Scan(&lItem.ItemID, &lItem.Price, &lItem.Quantity)
+		if err != nil {
+			// Handle the scan error, potentially breaking the loop or logging and continuing
+			fmt.Printf("unable to scan row: ")
+			fmt.Print(err)
+			return nil, fmt.Errorf("unable to scan row: %w", err)
+		}
+		cart.Items = append(cart.Items, lItem)
+	}
+	if rows.Err() != nil {
+		return nil, err
+	}
+
+	return &cart, nil
 }
 
 func (s *PostgresStore) DeleteUserCart(userID int) {
