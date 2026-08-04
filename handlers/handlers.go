@@ -16,7 +16,7 @@ import (
 type ItemStore interface {
 	GetItems(ctx context.Context) ([]*models.Item, error)
 	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
-	GetItem(id int) *models.Item
+	GetItem(ctx context.Context, id int) (*models.Item, error)
 	CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order
 	CreateUserCart(cart *models.Cart)
 	GetUserCart(userID int) *models.Cart
@@ -132,8 +132,8 @@ func (h *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http.Reque
 
 	orderItems := make([]models.LineItem, 0, len(req.Items))
 	for _, item := range req.Items {
-		storeItem := h.store.GetItem(item.ItemID)
-		if storeItem == nil {
+		storeItem, err := h.store.GetItem(r.Context(), item.ItemID)
+		if storeItem == nil || err != nil {
 			http.Error(w, fmt.Sprintf("Item %d not found", item.ItemID), http.StatusBadRequest)
 			return
 		}
@@ -342,7 +342,7 @@ func (h *Handler) GetItems(w http.ResponseWriter, r *http.Request) {
 	items, err := h.store.GetItems(r.Context())
 	if err != nil {
 		// return 500 to the client
-		writeJSON(w, http.StatusInternalServerError, nil)
+		writeJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -364,8 +364,8 @@ func (h *Handler) GetItemByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item := h.store.GetItem(id)
-	if item == nil {
+	item, err := h.store.GetItem(r.Context(), id)
+	if item == nil || err != nil {
 		http.Error(w, "Item not found", http.StatusNotFound)
 		return
 	}
@@ -390,8 +390,8 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	total := 0
 	orderItems := make([]models.LineItem, 0, len(req.Items))
 	for _, item := range req.Items {
-		storeItem := h.store.GetItem(item.ItemID)
-		if storeItem == nil {
+		storeItem, err := h.store.GetItem(r.Context(), item.ItemID)
+		if storeItem == nil || err != nil {
 			http.Error(w, fmt.Sprintf("Item %d not found", item.ItemID), http.StatusBadRequest)
 			return
 		}

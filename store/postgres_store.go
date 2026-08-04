@@ -49,9 +49,23 @@ func (s *PostgresStore) GetItems(ctx context.Context) ([]*models.Item, error) {
 }
 
 // GetItem returns a single item by ID, or nil if not found.
-func (s *PostgresStore) GetItem(id int) *models.Item {
+func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, error) {
 	// TODO: query a single item with conn.QueryRow()
-	return nil
+	row := s.conn.QueryRow(ctx,
+		"SELECT * FROM items WHERE id=$1", id)
+
+	var item models.Item
+	err := row.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("%w: No rows were returned from query on GetItemById", err)
+		}
+		fmt.Printf("unable to scan row: ")
+		fmt.Print(err)
+		return nil, fmt.Errorf("%w: failed to run query on GetItemById", err)
+	}
+
+	return &item, nil
 }
 
 func (s *PostgresStore) CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order {
