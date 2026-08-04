@@ -19,8 +19,8 @@ type ItemStore interface {
 	CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error)
 	CreateUserCart(ctx context.Context, cart *models.Cart) error
 	GetUserCart(ctx context.Context, userID int) (*models.Cart, error)
+	DeleteUserCart(ctx context.Context, userID int) error
 	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
-	DeleteUserCart(userID int)
 	UpdateCartItem(userID int, itemID int, quantity int) bool
 	RemoveCartItem(userID int, itemID int) bool
 }
@@ -219,11 +219,14 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 
 	cart, err := h.store.GetUserCart(r.Context(), req.UserID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error: $1", err.Error()), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Error: ", err.Error()), http.StatusBadRequest)
 		return
 	}
 	if cart != nil && len(cart.Items) == 0 {
-		h.store.DeleteUserCart(req.UserID)
+		err = h.store.DeleteUserCart(r.Context(), req.UserID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error: ", err.Error()), http.StatusBadRequest)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -327,7 +330,10 @@ func (h *Handler) CreateOrderFromCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if paymentResult.Success {
-		h.store.DeleteUserCart(req.UserID)
+		err = h.store.DeleteUserCart(r.Context(), req.UserID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error: ", err.Error()), http.StatusBadRequest)
+		}
 	}
 
 	responseData := map[string]any{

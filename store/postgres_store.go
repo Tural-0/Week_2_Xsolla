@@ -77,6 +77,7 @@ func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []mod
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while BEGIN", err)
 	}
+	defer trans.Rollback(ctx)
 
 	createdAt := time.Now()
 	_, err = trans.Exec(ctx,
@@ -84,6 +85,7 @@ func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []mod
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while EXEC", err)
 	}
+	defer trans.Rollback(ctx)
 
 	err = trans.Commit(ctx)
 	if err != nil {
@@ -164,8 +166,20 @@ func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Ca
 	return &cart, nil
 }
 
-func (s *PostgresStore) DeleteUserCart(userID int) {
+func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) error {
 	// TODO: implement
+	cartId := ""
+	err := s.conn.QueryRow(ctx,
+		"SELECT cart_id FROM carts WHERE user_id=$1", userID).Scan(cartId)
+	if err != nil {
+		return fmt.Errorf("%w: No rows were returned from query on DeleteUserCart", err)
+	}
+
+	s.conn.Exec(ctx,
+		"DELETE FROM carts WHERE cart_id=$1", cartId)
+
+	return nil
+
 }
 
 func (s *PostgresStore) UpdateCartItem(userID int, itemID int, quantity int) bool {
