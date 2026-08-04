@@ -348,7 +348,6 @@ func (h *Handler) GetItems(w http.ResponseWriter, r *http.Request) {
 
 	// return  200 to client
 	writeJSON(w, http.StatusOK, items)
-	return
 }
 
 // GetItemByID handles GET /items/{id} — returns a single item.
