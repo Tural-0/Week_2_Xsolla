@@ -33,3 +33,11 @@ type Cart struct {
 	UserID int        `json:"user_id"`
 	Items  []LineItem `json:"items"`
 }
+
+type User struct {
+	ID        int       `json:"id"`
+	Username  string    `json:"username"`
+	Email     string    `json:"email"`
+	Password  string    `json:"password"`
+	CreatedAt time.Time `json:"created_at"`
+}

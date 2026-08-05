@@ -57,6 +57,8 @@ func main() {
 	http.HandleFunc("/items", h.GetItems)
 	http.HandleFunc("/items/", h.GetItemByID)
 
+	http.HandleFunc("/signup", h.SignUpUser)
+
 	fmt.Println("Server starting on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

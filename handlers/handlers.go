@@ -20,9 +20,10 @@ type ItemStore interface {
 	CreateUserCart(ctx context.Context, cart *models.Cart) error
 	GetUserCart(ctx context.Context, userID int) (*models.Cart, error)
 	DeleteUserCart(ctx context.Context, userID int) error
-	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
 	UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) (bool, error)
 	RemoveCartItem(ctx context.Context, userID int, itemID int) (bool, error)
+	SignUpUser(ctx context.Context, user *models.User) (*models.User, error)
+	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -471,6 +472,45 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			"payment": paymentResult,
 		})
 	}
+}
+
+type SignUpUserRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (h *Handler) SignUpUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req SignUpUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Username == "" || req.Email == "" || req.Password == "" {
+		http.Error(w, "username, email, and password are required", http.StatusBadRequest)
+		return
+	}
+
+	user := &models.User{
+		Username:  req.Username,
+		Email:     req.Email,
+		Password:  req.Password,
+		CreatedAt: time.Now(),
+	}
+
+	createdUser, err := h.store.SignUpUser(r.Context(), user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, createdUser)
 }
 
 // writeJSON encodes v as JSON and writes it to the response.

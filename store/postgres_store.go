@@ -222,3 +222,13 @@ func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID int, itemID i
 	}
 	return true, nil
 }
+
+func (s *PostgresStore) SignUpUser(ctx context.Context, user *models.User) (*models.User, error) {
+	_, err := s.conn.Exec(ctx,
+		"INSERT INTO users (name, email, password, created_at) VALUES ($1, $2, $3, $4)", user.Username, user.Email, user.Password, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to run query on SignUpUser", err)
+	}
+
+	return user, nil
+}
