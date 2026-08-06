@@ -61,5 +61,8 @@ func main() {
 	http.HandleFunc("/signup", h.SignUpUser)
 
 	fmt.Println("Server starting on :8080")
+
+	//race.SimulateRaceCondition()
+
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
