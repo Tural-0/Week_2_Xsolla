@@ -16,13 +16,22 @@ import (
 type ItemStore interface {
 	GetItems(ctx context.Context) ([]*models.Item, error)
 	GetItem(ctx context.Context, id int) (*models.Item, error)
+
 	CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error)
+	GetOrderById(ctx context.Context, orderID int) (*models.Order, error)
+
 	CreateUserCart(ctx context.Context, cart *models.Cart) error
 	GetUserCart(ctx context.Context, userID int) (*models.Cart, error)
 	DeleteUserCart(ctx context.Context, userID int) error
+
 	UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) (bool, error)
 	RemoveCartItem(ctx context.Context, userID int, itemID int) (bool, error)
+
 	SignUpUser(ctx context.Context, user *models.User) (*models.User, error)
+
+	SaveIdempotencyKey(ctx context.Context, key string, orderID int) error
+	GetOrderIDByIdempotencyKey(ctx context.Context, key string) (int, error)
+
 	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
 }
 
@@ -422,6 +431,25 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" {
+		http.Error(w, "Idempotency-Key header is required", http.StatusBadRequest)
+		return
+	}
+
+	orderID, err := h.store.GetOrderIDByIdempotencyKey(r.Context(), key)
+	if err == nil {
+		order, err := h.store.GetOrderById(r.Context(), orderID)
+		if err != nil {
+			http.Error(w, "failed to get cached order", http.StatusInternalServerError)
+			return
+		}
+
+		fmt.Println("Cached response")
+		writeJSON(w, http.StatusCreated, order)
+		return
+	}
+
 	var req CreateOrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -462,16 +490,45 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if paymentResult.Success {
+		err = h.store.SaveIdempotencyKey(r.Context(), key, order.ID)
+		if err != nil {
+			http.Error(w, "failed to save idempotency key", http.StatusInternalServerError)
+			return
+		}
+		fmt.Println("Non-Cached response")
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"order":   order,
 			"payment": paymentResult,
 		})
 	} else {
+		fmt.Println("Non-Cached response")
 		writeJSON(w, http.StatusPaymentRequired, map[string]any{
 			"order":   order,
 			"payment": paymentResult,
 		})
 	}
+}
+
+func (h *Handler) GetOrderById(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := strings.TrimPrefix(r.URL.Path, "/orders/")
+	orderID, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid order ID", http.StatusBadRequest)
+		return
+	}
+
+	order, err := h.store.GetOrderById(r.Context(), orderID)
+	if order == nil || err != nil {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, order)
 }
 
 type SignUpUserRequest struct {

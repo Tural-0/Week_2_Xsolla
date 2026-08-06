@@ -70,30 +70,49 @@ func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, erro
 }
 
 func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
-	// TODO: create an order in a transaction
-	// Use a context.Context passed as the first argument from your method
-	// Use transaction with conn.Begin(), conn.Exec()
-	trans, err := s.conn.Begin(ctx)
+	tx, err := s.conn.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while BEGIN", err)
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer trans.Rollback(ctx)
+	defer tx.Rollback(ctx)
 
 	createdAt := time.Now()
-	_, err = trans.Exec(ctx,
-		"INSERT INTO orders (user_id,total,status,created_at) VALUES ($1,$2,$3,$4) RETURNING id", userID, total, status, createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while EXEC", err)
-	}
-	defer trans.Rollback(ctx)
-
-	err = trans.Commit(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to run query on CreateOrder while COMMIT", err)
-	}
 
 	var id int
-	s.conn.QueryRow(ctx, "SELECT id FROM orders WHERE created_at = $1", createdAt).Scan(id)
+	err = tx.QueryRow(
+		ctx,
+		`INSERT INTO orders (user_id, total, status, created_at)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id`,
+		userID,
+		total,
+		status,
+		createdAt,
+	).Scan(&id)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create order: %w", err)
+	}
+
+	for _, item := range items {
+		_, err = tx.Exec(
+			ctx,
+			`INSERT INTO order_items (order_id, item_id, price, quantity)
+		 VALUES ($1, $2, $3, $4)`,
+			id,
+			item.ItemID,
+			item.Price,
+			item.Quantity,
+		)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to add items to order: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
 
 	order := &models.Order{
 		ID:     id,
@@ -104,6 +123,46 @@ func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []mod
 	}
 
 	return order, nil
+}
+
+func (s *PostgresStore) GetOrderById(ctx context.Context, orderID int) (*models.Order, error) {
+	row := s.conn.QueryRow(ctx,
+		"SELECT id, user_id, total, status FROM orders WHERE id=$1", orderID)
+
+	var order models.Order
+	err := row.Scan(&order.ID, &order.UserID, &order.Total, &order.Status)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("%w: No rows were returned from query on GetOrderById", err)
+		}
+		fmt.Printf("unable to scan row: ")
+		fmt.Print(err)
+		return nil, fmt.Errorf("%w: failed to run query on GetOrderById", err)
+	}
+
+	// getting items
+	rows, err := s.conn.Query(ctx, "SELECT item_id, price, quantity FROM order_items WHERE order_id = $1", order.ID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to run query on GetOrderById while getting order_items", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var lItem models.LineItem
+		err := rows.Scan(&lItem.ItemID, &lItem.Price, &lItem.Quantity)
+		if err != nil {
+			// Handle the scan error, potentially breaking the loop or logging and continuing
+			fmt.Printf("unable to scan row: ")
+			fmt.Print(err)
+			return nil, fmt.Errorf("unable to scan row: %w", err)
+		}
+		order.Items = append(order.Items, lItem)
+	}
+	if rows.Err() != nil {
+		return nil, err
+	}
+
+	return &order, nil
 }
 
 func (s *PostgresStore) CreateUserCart(ctx context.Context, cart *models.Cart) error {
@@ -231,4 +290,40 @@ func (s *PostgresStore) SignUpUser(ctx context.Context, user *models.User) (*mod
 	}
 
 	return user, nil
+}
+
+func (s *PostgresStore) SaveIdempotencyKey(ctx context.Context, key string, orderID int) error {
+	_, err := s.conn.Exec(
+		ctx,
+		`INSERT INTO idempotency_keys (idempotency_key, order_id)
+		 VALUES ($1, $2)`,
+		key,
+		orderID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save idempotency key: %w", err)
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) GetOrderIDByIdempotencyKey(ctx context.Context, key string) (int, error) {
+	var orderID int
+
+	err := s.conn.QueryRow(
+		ctx,
+		`SELECT order_id
+		 FROM idempotency_keys
+		 WHERE idempotency_key = $1`,
+		key,
+	).Scan(&orderID)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, pgx.ErrNoRows
+		}
+		return 0, fmt.Errorf("failed to get idempotency key: %w", err)
+	}
+
+	return orderID, nil
 }

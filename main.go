@@ -53,6 +53,7 @@ func main() {
 		})
 	http.HandleFunc("/user/orders", h.CreateOrderFromCart)
 	http.HandleFunc("/orders", h.CreateOrder)
+	http.HandleFunc("/orders/", h.GetOrderById)
 
 	http.HandleFunc("/items", h.GetItems)
 	http.HandleFunc("/items/", h.GetItemByID)
