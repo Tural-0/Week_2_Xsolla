@@ -51,7 +51,7 @@ func main() {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 		})
-	http.HandleFunc("/user/orders", h.CreateOrderFromCart)
+	http.HandleFunc("/user/orders", h.CreateOrderFromCart) // teacher problem
 	http.HandleFunc("/orders", h.CreateOrder)
 	http.HandleFunc("/orders/", h.GetOrderById)
 

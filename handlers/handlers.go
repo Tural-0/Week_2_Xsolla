@@ -563,7 +563,8 @@ func (h *Handler) SignUpUser(w http.ResponseWriter, r *http.Request) {
 
 	createdUser, err := h.store.SignUpUser(r.Context(), user)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusInternalServerError)
+		//http.Error(w, fmt.Sprintf("Error: %v", err.Error()), http.StatusInternalServerError)
+		http.Error(w, "Email must be unique", http.StatusInternalServerError)
 		return
 	}
 
