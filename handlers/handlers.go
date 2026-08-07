@@ -29,8 +29,8 @@ type ItemStore interface {
 
 	SignUpUser(ctx context.Context, user *models.User) (*models.User, error)
 
-	SaveIdempotencyKey(ctx context.Context, key string, orderID int) error
-	GetOrderIDByIdempotencyKey(ctx context.Context, key string) (int, error)
+	SaveIdempotencyKey(ctx context.Context, userId int, key string, orderID int) error
+	GetOrderIDByIdempotencyKey(ctx context.Context, key string, userId int) (int, error)
 
 	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
 }
@@ -437,7 +437,13 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderID, err := h.store.GetOrderIDByIdempotencyKey(r.Context(), key)
+	var req CreateOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	orderID, err := h.store.GetOrderIDByIdempotencyKey(r.Context(), key, req.UserID)
 	if err == nil {
 		order, err := h.store.GetOrderById(r.Context(), orderID)
 		if err != nil {
@@ -447,12 +453,6 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 		fmt.Println("Cached response")
 		writeJSON(w, http.StatusCreated, order)
-		return
-	}
-
-	var req CreateOrderRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -490,9 +490,9 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if paymentResult.Success {
-		err = h.store.SaveIdempotencyKey(r.Context(), key, order.ID)
+		err = h.store.SaveIdempotencyKey(r.Context(), req.UserID, key, order.ID)
 		if err != nil {
-			http.Error(w, "failed to save idempotency key", http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		fmt.Println("Non-Cached response")

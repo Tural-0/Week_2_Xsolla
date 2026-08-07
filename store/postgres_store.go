@@ -292,11 +292,12 @@ func (s *PostgresStore) SignUpUser(ctx context.Context, user *models.User) (*mod
 	return user, nil
 }
 
-func (s *PostgresStore) SaveIdempotencyKey(ctx context.Context, key string, orderID int) error {
+func (s *PostgresStore) SaveIdempotencyKey(ctx context.Context, userId int, key string, orderID int) error {
 	_, err := s.conn.Exec(
 		ctx,
-		`INSERT INTO idempotency_keys (idempotency_key, order_id)
-		 VALUES ($1, $2)`,
+		`INSERT INTO idempotency_keys (user_id, idempotency_key, order_id)
+		 VALUES ($1, $2, $3)`,
+		userId,
 		key,
 		orderID,
 	)
@@ -307,15 +308,17 @@ func (s *PostgresStore) SaveIdempotencyKey(ctx context.Context, key string, orde
 	return nil
 }
 
-func (s *PostgresStore) GetOrderIDByIdempotencyKey(ctx context.Context, key string) (int, error) {
+func (s *PostgresStore) GetOrderIDByIdempotencyKey(ctx context.Context, key string, userId int) (int, error) {
 	var orderID int
 
 	err := s.conn.QueryRow(
 		ctx,
 		`SELECT order_id
 		 FROM idempotency_keys
-		 WHERE idempotency_key = $1`,
+		 WHERE idempotency_key = $1
+		 AND user_id = $2`,
 		key,
+		userId,
 	).Scan(&orderID)
 
 	if err != nil {
